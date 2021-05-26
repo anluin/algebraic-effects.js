@@ -1,0 +1,151 @@
+<html>
+    <head>
+        <meta charset="utf-8" />
+    </head>
+    <body>
+        <!-- Inspired by https://overreacted.io/algebraic-effects-for-the-rest-of-us/ -->
+
+        <script type="module">
+            import { withEffects, handleEffects, perform, resume, result } from "./algebraic-effects.js";
+
+            const getName = withEffects(function* (user) {
+                let name = user.name;
+
+                if (name === null) {
+                    name = yield perform("ask_name");
+                }
+
+                yield result(name);
+            });
+
+            function makeFriends(user1, user2) {
+                user1.friendNames.push(getName(user2));
+                user2.friendNames.push(getName(user1));
+            }
+
+            handleEffects(() => {
+                const arya = { name: null, friendNames: [] };
+                const gendry = { name: "Gendry", friendNames: [] };
+
+                makeFriends(arya, gendry);
+
+                console.table({ arya, gendry });
+
+            }, (effect) => {
+                if (effect === "ask_name") {
+                    return resume("Arya Stark");
+                }
+            });
+        </script>
+        <script type="module">
+            import { withEffects, handleEffects, createEffect, perform, resume, result } from "./algebraic-effects.js";
+
+            const OpenDirectory = createEffect("OpenDirectory");
+            const HandleFile = createEffect("HandleFile");
+            const Log = createEffect("Log");
+
+            const enumerateFiles = withEffects(function* (dir) {
+                const contents = (yield perform(OpenDirectory))(dir);
+
+                (yield perform(Log))("Enumerating files in ", dir);
+
+                for (let file of contents.files) {
+                    (yield perform(HandleFile))(file);
+                }
+
+                (yield perform(Log))("Enumerating subdirectories in ", dir);
+
+                for (let directory of contents.dirs) {
+                    enumerateFiles(directory);
+                }
+
+                (yield perform(Log))("Done");
+            });
+
+            const withMyLoggingLibrary = (callback) => handleEffects(callback, (effect) => {
+                if (effect instanceof Log) {
+                    return resume((...args) => {
+                        console.log("custom-log-system:", ...args);
+                    });
+                }
+            });
+
+            const withFakeFileSystem = (fakeFiles, callback) => handleEffects(callback, (effect) => {
+                if (effect instanceof OpenDirectory) {
+                    return resume((dirName) => {
+                        return (fakeFiles)[dirName] || {
+                            files: [],
+                            dirs: [],
+                        };
+                    });
+                } else if (effect instanceof HandleFile) {
+                    return resume(withEffects(function* (fileName) {
+                        (yield perform(Log))(`handle file: ${fileName}`);
+                    }));
+                }
+            });
+
+            const logsSnapshot = [
+                ["Enumerating files in ", "C:/"],
+                ["handle file: C:/test-a.txt"],
+                ["handle file: C:/test-b.txt"],
+                ["Enumerating subdirectories in ", "C:/"],
+                ["Enumerating files in ", "C:/test/"],
+                ["handle file: C:/test/test-c.txt"],
+                ["Enumerating subdirectories in ", "C:/test/"],
+                ["Done"],
+                ["Done"],
+            ];
+
+            const fakeFiles = {
+                "C:/": {
+                    files: [
+                        "C:/test-a.txt",
+                        "C:/test-b.txt"
+                    ],
+                    dirs: [
+                        "C:/test/"
+                    ],
+                },
+                "C:/test/": {
+                    files: [
+                        "C:/test/test-c.txt"
+                    ],
+                    dirs: [],
+                },
+            };
+
+            function ourProgram() {
+                enumerateFiles("C:/");
+            }
+
+            withMyLoggingLibrary(() => {
+                withFakeFileSystem(fakeFiles, () => {
+                    ourProgram();
+                });
+            });
+
+            const withLogSnapshot = (callback) => {
+                const logs = [];
+
+                handleEffects(callback, (effect) => {
+                    if (effect instanceof Log) {
+                        return resume((...args) => {
+                            logs.push(args);
+                        });
+                    }
+                });
+
+                if (JSON.stringify(logs) !== JSON.stringify(logsSnapshot)) {
+                    throw new Error("does not match snapshot!");
+                }
+            };
+
+            withLogSnapshot(() => {
+                withFakeFileSystem(fakeFiles, () => {
+                    ourProgram();
+                });
+            });
+        </script>
+    </body>
+</html>

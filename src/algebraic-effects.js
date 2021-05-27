@@ -35,7 +35,11 @@ export const perform = (value) => new Perform(value);
 export const resume = (value) => new Resume(value);
 export const result = (value) => new Result(value);
 
-export const handleEffects = ((currentEffectHandler) => (callback, handler) => {
+let currentEffectHandler = (effect) => {
+    throw new Error(`unhandeld effect: ${effect}`);
+};
+
+export const handleEffects = (callback, handler) => {
     const previousHandler = currentEffectHandler;
 
     currentEffectHandler = (effect) => {
@@ -53,9 +57,7 @@ export const handleEffects = ((currentEffectHandler) => (callback, handler) => {
     currentEffectHandler = previousHandler;
 
     return result;
-})((effect) => {
-    throw new Error(`unhandeld effect: ${effect}`);
-});
+};
 
 export const withEffects = (generator) => (...args) => ((generator) => {
     for (let message = generator.next(); !message.done;) {

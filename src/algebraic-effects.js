@@ -1,78 +1,23 @@
-// Some boilerplate to be able to use "instanceof"...
-class Perform {
-    constructor(data) {
-        this.data = data;
-    }
-}
-
-class Resume {
-    constructor(data) {
-        this.data = data;
-    }
-}
-
-class Result {
-    constructor(data) {
-        this.data = data;
-    }
-}
-
-class Effect {
-    constructor() {
-    }
-}
-
-export const createEffect = (name) => {
-    return Object.assign(class extends Effect { }, {
-        toString() {
-            return name;
-        }
-    });
+let effectsHandler = (effect) => {
+    throw new Error(`unhandled effect: "${effect}"`);
 };
 
-// Some workarounds for the non-existent language support...
-export const perform = (value) => new Perform(value);
-export const resume = (value) => new Resume(value);
-export const result = (value) => new Result(value);
+export const effects = new Proxy({}, {
+    get: (...[, effect]) => (...args) => effectsHandler(effect, args),
+});
 
-let currentEffectHandler = (effect) => {
-    throw new Error(`unhandeld effect: ${effect}`);
-};
+export const handleEffects = async (callback, effectHandlers) => {
+    const previousEffectsHandler = effectsHandler;
 
-export const handleEffects = (callback, handler) => {
-    const previousHandler = currentEffectHandler;
-
-    currentEffectHandler = (effect) => {
-        let result = handler(effect);
-
-        if (result instanceof Resume) {
-            return result.data;
+    effectsHandler = (effect, args) => {
+        if (effectHandlers[effect]) {
+            return effectHandlers[effect](...args);
         } else {
-            return previousHandler(effect);
+            return previousEffectsHandler(effect, args);
         }
     };
 
-    let result = callback();
+    await callback();
 
-    currentEffectHandler = previousHandler;
-
-    return result;
+    effectsHandler = previousEffectsHandler;
 };
-
-export const withEffects = (generator) => (...args) => ((generator) => {
-    for (let message = generator.next(); !message.done;) {
-        if (message.value instanceof Perform) {
-            const effect = message.value.data;
-
-            message = generator.next(currentEffectHandler(
-                effect.prototype instanceof Effect
-                    ? new effect()
-                    : effect
-            ));
-        } else if (message.value instanceof Result) {
-            return generator.return(message.value.data).value;
-        } else {
-            throw new Error(`something went wrong`);
-        }
-    }
-})(generator(...args));
